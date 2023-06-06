@@ -1,4 +1,5 @@
 ﻿using Microsoft.Bot.Builder;
+using Microsoft.Bot.Builder.Teams;
 using Microsoft.Bot.Connector;
 using Microsoft.Bot.Connector.Authentication;
 using Microsoft.Bot.Schema;
@@ -16,7 +17,7 @@ using System.Threading.Tasks;
 
 namespace Microsoft.BotBuilderSamples.Bots
 {
-    public class BatchConversationBot
+    public class BatchConversationBot : TeamsActivityHandler
     {
         private readonly HttpClient httpClient;
 
@@ -26,6 +27,23 @@ namespace Microsoft.BotBuilderSamples.Bots
             // Use canary endpoint
             httpClient.BaseAddress = new Uri("https://canary.botapi.skype.com/amer-df/");
             httpClient.Timeout = TimeSpan.FromSeconds(15);
+        }
+
+        protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
+        {
+            turnContext.Activity.RemoveRecipientMention();
+            var text = turnContext.Activity.Text.Trim().ToLower();
+
+            //if (text.Contains("tenant"))
+
+            //else if (text.Contains("team"))
+
+            //else if (text.Contains("channel"))
+
+            //else if (text.Contains("users"))
+
+            //else
+            //    throw new NotImplementedException();
         }
 
         public async Task SendMessageToListOfUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, List<string> users, CancellationToken cancellationToken)
