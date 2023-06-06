@@ -105,10 +105,10 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
-        public async Task SendMessageToTeamsUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
+        public async Task SendMessageToTeamUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
         {
             BatchConversationRequest request = new BatchConversationRequest();
-            request.Activity = JToken.FromObject(turnContext.Activity);
+            request.Activity = JToken.FromObject(turnContext.Activity); 
             request.TenantId = tenantId;
             request.TeamId = teamId;
 
@@ -150,7 +150,7 @@ namespace Microsoft.BotBuilderSamples.Bots
 
         #region HTTP client helpers - Valid until SDK includes new APIs
 
-        public async Task<CreateBatchConversationResponse> postBatchMessagesAsync(
+        private async Task<CreateBatchConversationResponse> postBatchMessagesAsync(
             ITurnContext<IMessageActivity> turnContext,
             BatchConversationRequest requestBody,
             BatchConversationEndpointType endpoint,
@@ -183,7 +183,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
-        public async Task<GetBatchConversationStateResponse> getBatchOperationStateAsync(
+        private async Task<GetBatchConversationStateResponse> getBatchOperationStateAsync(
             ITurnContext<IMessageActivity> turnContext,
             string operationId,
             CancellationToken cancellationToken
@@ -214,7 +214,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
-        public async Task<GetFailedEntriesResponse> getFailedEntriesPaginatedAsync(
+        private async Task<GetFailedEntriesResponse> getFailedEntriesPaginatedAsync(
             ITurnContext<IMessageActivity> turnContext,
             string operationId,
             CancellationToken cancellationToken,
@@ -251,7 +251,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
-        public async Task<bool> cancelOperationAsync(
+        private async Task<bool> cancelOperationAsync(
             ITurnContext<IMessageActivity> turnContext,
             string operationId,
             CancellationToken cancellationToken
