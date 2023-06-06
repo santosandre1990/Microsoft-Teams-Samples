@@ -8,7 +8,7 @@ namespace Microsoft.BotBuilderSamples.Models.dto
     public class BatchConversationRequestDto
     {
         [JsonProperty("Members")]
-        public IEnumerable<Entry> Members { get; set; }
+        public IEnumerable<ChannelAccount> Members { get; set; }
         [JsonProperty("Activity")]
         public JToken Activity { get; set; }
         [JsonProperty("TenantId")]
