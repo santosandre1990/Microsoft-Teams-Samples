@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.BotBuilderSamples.Bots;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Bot.Connector.Authentication;
+using System.Net.Http;
 
 namespace Microsoft.BotBuilderSamples
 {
