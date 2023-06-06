@@ -7,6 +7,7 @@
         teamUserEndpoint,
         listOfChannelsEndpoint,
         operationState,
-        failedEntriesPaginated
+        failedEntriesPaginated,
+        cancelOperation
     }
 }

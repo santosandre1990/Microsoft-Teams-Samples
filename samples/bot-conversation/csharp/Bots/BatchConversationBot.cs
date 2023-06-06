@@ -93,7 +93,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.TenantId = tenantId;
 
             // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.tenantUsersEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
             var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
@@ -113,7 +113,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.TeamId = teamId;
 
             // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.teamUserEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
             var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
@@ -251,6 +251,35 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
+        public async Task<bool> cancelOperationAsync(
+            ITurnContext<IMessageActivity> turnContext,
+            string operationId,
+            CancellationToken cancellationToken
+            )
+        {
+
+            var Client = turnContext.TurnState.Get<IConnectorClient>();
+            var creds = Client.Credentials as AppCredentials;
+            var bearerToken = await creds.GetTokenAsync().ConfigureAwait(false);
+
+            using (var request = new HttpRequestMessage())
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+                request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.cancelOperation), operationId), UriKind.Relative);
+                request.Method = HttpMethod.Delete;
+
+                using (HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+                {
+                    string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                    if (!response.IsSuccessStatusCode)
+                        return false;
+
+                    return true;
+                }
+            }
+        }
+
         private string mapBatchConversationApiEndpoints(BatchConversationEndpointType endpoint)
         {
             switch (endpoint)
@@ -267,6 +296,8 @@ namespace Microsoft.BotBuilderSamples.Bots
                     return "v3/batch/conversation/";
                 case BatchConversationEndpointType.failedEntriesPaginated:
                     return "v3/batch/conversation/failedentries/";
+                case BatchConversationEndpointType.cancelOperation:
+                    return "v3/batch/conversation/";
                 default:
                     throw new Exception($"Provided endpoint is not valid");
             }
