@@ -6,6 +6,7 @@
         tenantUsersEndpoint,
         teamUserEndpoint,
         listOfChannelsEndpoint,
-        operationState
+        operationState,
+        failedEntriesPaginated
     }
 }

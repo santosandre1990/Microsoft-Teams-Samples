@@ -53,10 +53,17 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.TenantId = tenantId;
             request.Members = users.Select(o => new ChannelAccount { Id = o }).ToList();
 
-            var createOperationResp = await sendBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            // Create Async Batch Operation
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
-            await waitForOperationState(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+
+            if(operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            {
+                // Check for failed entries - fetch first page - use continuation token to fetch more pages
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+            }
         }
 
         public async Task SendMessageToListOfChannels(ITurnContext<IMessageActivity> turnContext, string tenantId, List<string> channels, CancellationToken cancellationToken)
@@ -66,10 +73,17 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.TenantId = tenantId;
             request.Members = channels.Select(o => new ChannelAccount { Id = o }).ToList();
 
-            var createOperationResp = await sendBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfChannelsEndpoint, cancellationToken).ConfigureAwait(false);
+            // Create Async Batch Operation
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfChannelsEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
-            await waitForOperationState(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+
+            if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            {
+                // Check for failed entries - fetch first page - use continuation token to fetch more pages
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+            }
         }
 
         public async Task SendMessageToAllTenantUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, CancellationToken cancellationToken)
@@ -78,10 +92,17 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.Activity = JToken.FromObject(turnContext.Activity);
             request.TenantId = tenantId;
 
-            var createOperationResp = await sendBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            // Create Async Batch Operation
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
-            await waitForOperationState(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+
+            if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            {
+                // Check for failed entries - fetch first page - use continuation token to fetch more pages
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+            }
         }
 
         public async Task SendMessageToTeamsUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
@@ -91,26 +112,35 @@ namespace Microsoft.BotBuilderSamples.Bots
             request.TenantId = tenantId;
             request.TeamId = teamId;
 
-            var createOperationResp = await sendBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            // Create Async Batch Operation
+            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
 
             // Wait for operation to complete
-            await waitForOperationState(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+
+            if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            {
+                // Check for failed entries - fetch first page - use continuation token to fetch more pages
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+            }
         }
 
-        private async Task<GetBatchConversationStateResponse> waitForOperationState(ITurnContext<IMessageActivity> turnContext, string operationId, CancellationToken cancellationToken)
+        private async Task<GetBatchConversationStateResponse> waitForOperationToComplete(ITurnContext<IMessageActivity> turnContext, string operationId, CancellationToken cancellationToken)
         {
             GetBatchConversationStateResponse getOpStateResp;
             do
             {
-                // Fetch Retry after
+                // Get Operation State
                 getOpStateResp = await getBatchOperationStateAsync(turnContext, operationId, cancellationToken);
 
+                // Operation is ongoing while state in "Ongoing" or "Provisioning"
                 if (getOpStateResp.State.ToLower() == "ongoing" || getOpStateResp.State.ToLower() == "provisioning")
                 {
+                    // Retries should respect the Retry-After property value, or else the bot will be throttled
                     var t = getOpStateResp.RetryAfter.Value.Subtract(DateTime.UtcNow);
 
-                        await Task.Delay((t.Seconds + t.Minutes * 60) * 1000);
-                        continue;
+                    await Task.Delay((t.Seconds + t.Minutes * 60) * 1000);
+                    continue;
 
                 }
             } while (getOpStateResp.State.ToLower() != "completed" && getOpStateResp.State.ToLower() != "failed" || cancellationToken.IsCancellationRequested);
@@ -120,7 +150,7 @@ namespace Microsoft.BotBuilderSamples.Bots
 
         #region HTTP client helpers - Valid until SDK includes new APIs
 
-        public async Task<CreateBatchConversationResponse> sendBatchMessagesAsync(
+        public async Task<CreateBatchConversationResponse> postBatchMessagesAsync(
             ITurnContext<IMessageActivity> turnContext,
             BatchConversationRequest requestBody,
             BatchConversationEndpointType endpoint,
@@ -167,10 +197,10 @@ namespace Microsoft.BotBuilderSamples.Bots
             using (var request = new HttpRequestMessage())
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
-                request.RequestUri = new Uri(string.Concat("v3/batch/conversation/", operationId), UriKind.Relative);
+                request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.operationState), operationId), UriKind.Relative);
                 request.Method = HttpMethod.Get;
 
-                using (HttpResponseMessage response = await httpClient.SendAsync(request,cancellationToken).ConfigureAwait(false))
+                using (HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
                 {
                     string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
@@ -180,6 +210,43 @@ namespace Microsoft.BotBuilderSamples.Bots
                     }
 
                     return GetBatchConversationStateResponseDto.Deserialize(content);
+                }
+            }
+        }
+
+        public async Task<GetFailedEntriesResponse> getFailedEntriesPaginatedAsync(
+            ITurnContext<IMessageActivity> turnContext,
+            string operationId,
+            CancellationToken cancellationToken,
+            string continuationToken = null
+            )
+        {
+
+            var Client = turnContext.TurnState.Get<IConnectorClient>();
+            var creds = Client.Credentials as AppCredentials;
+            var bearerToken = await creds.GetTokenAsync().ConfigureAwait(false);
+
+            using (var request = new HttpRequestMessage())
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+                
+                if(continuationToken != null )
+                    request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.failedEntriesPaginated), operationId, $"?continuationToken={continuationToken}"), UriKind.Relative);
+                else
+                    request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.failedEntriesPaginated), operationId), UriKind.Relative);
+
+                request.Method = HttpMethod.Get;
+
+                using (HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+                {
+                    string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new Exception();
+                    }
+
+                    return GetFailedEntriesResponseDto.Deserialize(content);
                 }
             }
         }
@@ -196,6 +263,10 @@ namespace Microsoft.BotBuilderSamples.Bots
                     return "v3/batch/conversation/team";
                 case BatchConversationEndpointType.listOfUsersEndpoint:
                     return "v3/batch/conversation/users";
+                case BatchConversationEndpointType.operationState:
+                    return "v3/batch/conversation/";
+                case BatchConversationEndpointType.failedEntriesPaginated:
+                    return "v3/batch/conversation/failedentries/";
                 default:
                     throw new Exception($"Provided endpoint is not valid");
             }
