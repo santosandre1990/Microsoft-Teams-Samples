@@ -19,6 +19,12 @@ namespace Microsoft.BotBuilderSamples.Bots
 {
     public class BatchConversationBot : TeamsActivityHandler
     {
+        private readonly string tenantId = "test_tenant_id";
+        private readonly string teamId = "test_team_id";
+        private readonly List<string> listOfUsersEncryptedMRI = new List<string> { "user_enc_mri_test_1", "user_enc_mri_test_2" };
+        private readonly List<string> listOfUsersEncryptedAadObjId = new List<string> { "user_enc_aad_test_1", "user_enc_aad_test_2" };
+        private readonly List<string> listOfChannelsIds = new List<string> { "channel_id_test_1", "channel_id_test_2" };
+
         private readonly HttpClient httpClient;
 
         public BatchConversationBot()
@@ -34,16 +40,17 @@ namespace Microsoft.BotBuilderSamples.Bots
             turnContext.Activity.RemoveRecipientMention();
             var text = turnContext.Activity.Text.Trim().ToLower();
 
-            //if (text.Contains("tenant"))
+            if (text.Contains("all_tenant_users"))
+                await SendMessageToAllTenantUsers(turnContext, tenantId, cancellationToken);
+            else if (text.Contains("all_team_users"))
+                await SendMessageToAllTeamUsers(turnContext, tenantId,teamId, cancellationToken);
+            else if (text.Contains("list_of_channel"))
+                await SendMessageToListOfChannels(turnContext,tenantId,listOfChannelsIds, cancellationToken);
+            else if (text.Contains("list_of_enc_user_mri"))
+                await SendMessageToListOfUsers(turnContext, tenantId, listOfUsersEncryptedMRI, cancellationToken);
+            else if (text.Contains("list_of_aad_obj_id"))
+                await SendMessageToListOfUsers(turnContext, tenantId, listOfUsersEncryptedAadObjId, cancellationToken);
 
-            //else if (text.Contains("team"))
-
-            //else if (text.Contains("channel"))
-
-            //else if (text.Contains("users"))
-
-            //else
-            //    throw new NotImplementedException();
         }
 
         public async Task SendMessageToListOfUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, List<string> users, CancellationToken cancellationToken)
@@ -105,7 +112,7 @@ namespace Microsoft.BotBuilderSamples.Bots
             }
         }
 
-        public async Task SendMessageToTeamUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
+        public async Task SendMessageToAllTeamUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
         {
             BatchConversationRequest request = new BatchConversationRequest();
             request.Activity = JToken.FromObject(turnContext.Activity); 
