@@ -19,117 +19,175 @@ namespace Microsoft.BotBuilderSamples.Bots
 {
     public class BatchConversationBot : TeamsActivityHandler
     {
-        private readonly string tenantId = "test_tenant_id";
-        private readonly string teamId = "test_team_id";
-        private readonly List<string> listOfUsersEncryptedMRI = new List<string> { "user_enc_mri_test_1", "user_enc_mri_test_2" };
-        private readonly List<string> listOfUsersEncryptedAadObjId = new List<string> { "user_enc_aad_test_1", "user_enc_aad_test_2" };
-        private readonly List<string> listOfChannelsIds = new List<string> { "channel_id_test_1", "channel_id_test_2" };
-
         private readonly HttpClient httpClient;
+
+        private struct CommandParameters
+        {
+            public ITurnContext<IMessageActivity> TurnContext;
+            public IActivity Activity;
+            public string Content;
+            public IDictionary<string, string> Arguments;
+            public int MentionTypes;
+        };
+
+        private delegate Task MessageCommandHandler(CommandParameters parameters);
+        private readonly Dictionary<string, MessageCommandHandler> MessageCommandHandlers;
 
         public BatchConversationBot()
         {
-            httpClient = new HttpClient();
             // Use canary endpoint
+            httpClient = new HttpClient();
             httpClient.BaseAddress = new Uri("https://canary.botapi.skype.com/amer-df/");
             httpClient.Timeout = TimeSpan.FromSeconds(15);
+
+            this.MessageCommandHandlers = new Dictionary<string, MessageCommandHandler>
+            {
+                { "all_tenant_users", SendMessageToAllTenantUsers },
+                { "all_team_users", SendMessageToAllTeamUsers },
+                { "list_of_channel", SendMessageToListOfChannels },
+                { "list_of_enc_user_mri", SendMessageToListOfUsers },
+                { "list_of_user_aad_obj_id", SendMessageToListOfUsers },
+                { "cancel_operation", CancelOperation }
+            };
+
         }
 
         protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
         {
-            turnContext.Activity.RemoveRecipientMention();
-            var text = turnContext.Activity.Text.Trim().ToLower();
-
-            if (text.Contains("all_tenant_users"))
-                await SendMessageToAllTenantUsers(turnContext, tenantId, cancellationToken);
-            else if (text.Contains("all_team_users"))
-                await SendMessageToAllTeamUsers(turnContext, tenantId,teamId, cancellationToken);
-            else if (text.Contains("list_of_channel"))
-                await SendMessageToListOfChannels(turnContext,tenantId,listOfChannelsIds, cancellationToken);
-            else if (text.Contains("list_of_enc_user_mri"))
-                await SendMessageToListOfUsers(turnContext, tenantId, listOfUsersEncryptedMRI, cancellationToken);
-            else if (text.Contains("list_of_aad_obj_id"))
-                await SendMessageToListOfUsers(turnContext, tenantId, listOfUsersEncryptedAadObjId, cancellationToken);
-
+            // Command sample
+            //
+            // audience -> "all_tenant_users","all_team_users","list_of_channel","list_of_enc_user_mri","list_of_user_aad_obj_id,"cancel_operation",
+            // recipients argument valid for operations -> "list_of_channel","list_of_enc_user_mri","list_of_user_aad_obj_id"
+            //
+            // /batch_conversation -tenantId <test-tenant-id> -audience <test-audience> -content <test-content> -recipients <test-recipient-1>,<test-recipient-2>
+            
+            await ProcessMessageAsync(turnContext).ConfigureAwait(false);
         }
 
-        public async Task SendMessageToListOfUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, List<string> users, CancellationToken cancellationToken)
+        private async Task SendMessageToListOfUsers(CommandParameters parameters)
         {
-            BatchConversationRequest request = new BatchConversationRequest();
-            request.Activity = JToken.FromObject(turnContext.Activity);
-            request.TenantId = tenantId;
-            request.Members = users.Select(o => new ChannelAccount { Id = o }).ToList();
 
-            // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, cancellationToken).ConfigureAwait(false);
-
-            // Wait for operation to complete
-            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
-
-            if(operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            if (!parameters.Arguments.ContainsKey("tenantId") || !parameters.Arguments.ContainsKey("recipients"))
             {
-                // Check for failed entries - fetch first page - use continuation token to fetch more pages
-                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+                await parameters.TurnContext.SendActivityAsync(MessageFactory.Text("Required parameters (tenantId, recipients) was not provided.")).ConfigureAwait(false);
+                return;
             }
-        }
 
-        public async Task SendMessageToListOfChannels(ITurnContext<IMessageActivity> turnContext, string tenantId, List<string> channels, CancellationToken cancellationToken)
-        {
+            var recipients = parameters.Arguments["recipients"];
+            var entryIds = getEntryIds(recipients);
+
             BatchConversationRequest request = new BatchConversationRequest();
-            request.Activity = JToken.FromObject(turnContext.Activity);
-            request.TenantId = tenantId;
-            request.Members = channels.Select(o => new ChannelAccount { Id = o }).ToList();
+            request.Activity = JToken.FromObject(parameters.TurnContext.Activity);
+            request.TenantId = parameters.TurnContext.Activity.Conversation.TenantId;
+            request.Members = entryIds.Select(o => new ChannelAccount { Id = o }).ToList();
 
             // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.listOfChannelsEndpoint, cancellationToken).ConfigureAwait(false);
+            var createOperationResp = await postBatchMessagesAsync(parameters.TurnContext, request, BatchConversationEndpointType.listOfUsersEndpoint, CancellationToken.None).ConfigureAwait(false);
 
             // Wait for operation to complete
-            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
 
             if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
             {
                 // Check for failed entries - fetch first page - use continuation token to fetch more pages
-                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
             }
         }
 
-        public async Task SendMessageToAllTenantUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, CancellationToken cancellationToken)
+        private async Task SendMessageToListOfChannels(CommandParameters parameters)
         {
+            if (!parameters.Arguments.ContainsKey("tenantId") || !parameters.Arguments.ContainsKey("recipients"))
+            {
+                await parameters.TurnContext.SendActivityAsync(MessageFactory.Text("Required parameters (tenantId, recipients) was not provided.")).ConfigureAwait(false);
+                return;
+            }
+
+            var recipients = parameters.Arguments["recipients"];
+            var entryIds = getEntryIds(recipients);
+
             BatchConversationRequest request = new BatchConversationRequest();
-            request.Activity = JToken.FromObject(turnContext.Activity);
-            request.TenantId = tenantId;
+            request.Activity = JToken.FromObject(parameters.TurnContext.Activity);
+            request.TenantId = parameters.TurnContext.Activity.Conversation.TenantId;
+            request.Members = entryIds.Select(o => new ChannelAccount { Id = o }).ToList();
 
             // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.tenantUsersEndpoint, cancellationToken).ConfigureAwait(false);
+            var createOperationResp = await postBatchMessagesAsync(parameters.TurnContext, request, BatchConversationEndpointType.listOfChannelsEndpoint, CancellationToken.None).ConfigureAwait(false);
 
             // Wait for operation to complete
-            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
 
             if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
             {
                 // Check for failed entries - fetch first page - use continuation token to fetch more pages
-                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
             }
         }
 
-        public async Task SendMessageToAllTeamUsers(ITurnContext<IMessageActivity> turnContext, string tenantId, string teamId, CancellationToken cancellationToken)
+        private async Task SendMessageToAllTenantUsers(CommandParameters parameters)
         {
+            if (!parameters.Arguments.ContainsKey("tenantId"))
+            {
+                await parameters.TurnContext.SendActivityAsync(MessageFactory.Text("Required parameters (tenantId) was not provided.")).ConfigureAwait(false);
+                return;
+            }
+
             BatchConversationRequest request = new BatchConversationRequest();
-            request.Activity = JToken.FromObject(turnContext.Activity); 
-            request.TenantId = tenantId;
-            request.TeamId = teamId;
+            request.Activity = JToken.FromObject(parameters.TurnContext.Activity);
+            request.TenantId = parameters.TurnContext.Activity.Conversation.TenantId;
 
             // Create Async Batch Operation
-            var createOperationResp = await postBatchMessagesAsync(turnContext, request, BatchConversationEndpointType.teamUserEndpoint, cancellationToken).ConfigureAwait(false);
+            var createOperationResp = await postBatchMessagesAsync(parameters.TurnContext, request, BatchConversationEndpointType.tenantUsersEndpoint, CancellationToken.None).ConfigureAwait(false);
 
             // Wait for operation to complete
-            var operationStateResp = await waitForOperationToComplete(turnContext, createOperationResp.OperationId, cancellationToken);
+            var operationStateResp = await waitForOperationToComplete(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
 
             if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
             {
                 // Check for failed entries - fetch first page - use continuation token to fetch more pages
-                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(turnContext, createOperationResp.OperationId, cancellationToken);
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
             }
+        }
+
+        private async Task SendMessageToAllTeamUsers(CommandParameters parameters)
+        {
+
+            if (!parameters.Arguments.ContainsKey("tenantId") || !parameters.Arguments.ContainsKey("teamId"))
+            {
+                await parameters.TurnContext.SendActivityAsync(MessageFactory.Text("Required parameters (tenantId,teamId) was not provided.")).ConfigureAwait(false);
+                return;
+            }
+
+            BatchConversationRequest request = new BatchConversationRequest();
+            request.Activity = JToken.FromObject(parameters.TurnContext.Activity);
+            request.TenantId = parameters.TurnContext.Activity.Conversation.TenantId;
+            request.TeamId = parameters.Arguments["teamId"];
+
+            // Create Async Batch Operation
+            var createOperationResp = await postBatchMessagesAsync(parameters.TurnContext, request, BatchConversationEndpointType.teamUserEndpoint, CancellationToken.None).ConfigureAwait(false);
+
+            // Wait for operation to complete
+            var operationStateResp = await waitForOperationToComplete(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
+
+            if (operationStateResp.StatusMap.Keys.Any(key => key != "201"))
+            {
+                // Check for failed entries - fetch first page - use continuation token to fetch more pages
+                var failedEntriesPaginatedResp = await getFailedEntriesPaginatedAsync(parameters.TurnContext, createOperationResp.OperationId, CancellationToken.None);
+            }
+        }
+
+        private async Task CancelOperation(CommandParameters parameters)
+        {
+
+            if (!parameters.Arguments.ContainsKey("operationId"))
+            {
+                await parameters.TurnContext.SendActivityAsync(MessageFactory.Text("Required parameters (operationId) was not provided.")).ConfigureAwait(false);
+                return;
+            }
+
+            // Cancel Operation
+            var operationId = parameters.Arguments["operationId"];
+            
+            await cancelOperationAsync(parameters.TurnContext, operationId, CancellationToken.None).ConfigureAwait(false);
         }
 
         private async Task<GetBatchConversationStateResponse> waitForOperationToComplete(ITurnContext<IMessageActivity> turnContext, string operationId, CancellationToken cancellationToken)
@@ -236,8 +294,8 @@ namespace Microsoft.BotBuilderSamples.Bots
             using (var request = new HttpRequestMessage())
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
-                
-                if(continuationToken != null )
+
+                if (continuationToken != null)
                     request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.failedEntriesPaginated), operationId, $"?continuationToken={continuationToken}"), UriKind.Relative);
                 else
                     request.RequestUri = new Uri(string.Concat(mapBatchConversationApiEndpoints(BatchConversationEndpointType.failedEntriesPaginated), operationId), UriKind.Relative);
@@ -309,6 +367,86 @@ namespace Microsoft.BotBuilderSamples.Bots
                     throw new Exception($"Provided endpoint is not valid");
             }
         }
+        #endregion
+
+        #region Helpers
+
+        private List<string> getEntryIds(string recipients)
+        {
+            var recipientList = recipients.Split(",").ToList();
+            List<string> listOfEntriesIds = new List<string>();
+            foreach (string recipient in recipientList)
+            {
+                listOfEntriesIds.Add(recipient);
+            }
+            return listOfEntriesIds;
+        }
+
+        private async Task ProcessMessageAsync(ITurnContext<IMessageActivity> turnContext)
+        {
+            var parameters = new CommandParameters()
+            {
+                TurnContext = turnContext,
+                Activity = turnContext.Activity,
+            };
+
+            string content = turnContext.Activity.Text;
+
+            List<string> splitted = content.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToList();
+           
+            // Parse arguments
+            IDictionary<string, string> arguments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            int i = 1;
+
+            while (i < splitted.Count())
+            {
+                if (!splitted[i].StartsWith("-") || splitted[i].Equals("-") || i + 1 >= splitted.Count() || splitted[i + 1].StartsWith("-"))
+                {
+                    await SendMessageAsync(turnContext, "Invalid command format.");
+
+                    return;
+                }
+
+                arguments.Add(splitted[i].Substring(1), splitted[i + 1]);
+                i += 2;
+            }
+
+            if (!arguments.ContainsKey("audience"))
+            {
+                await SendMessageAsync(turnContext, "Invalid command format. Missing audience argument.");
+                return;
+            }
+
+            var methodPair = MessageCommandHandlers.Where(t => string.Equals(arguments["audience"], t.Key, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+
+            // Not found
+            if (string.IsNullOrWhiteSpace(methodPair.Key))
+            {
+                await SendMessageAsync(turnContext, "Invalid command format.");
+                return;
+            }
+
+            try
+            {
+                parameters.Content = content.Substring(methodPair.Key.Length).Trim();
+                parameters.Arguments = arguments;
+
+                await methodPair.Value(parameters).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                var replyToConversation = MessageFactory.Text(e.ToString());
+                await parameters.TurnContext.SendActivityAsync(replyToConversation).ConfigureAwait(false);
+            }
+        }
+
+        public static async Task SendMessageAsync<T>(ITurnContext<T> turnContext, string content) where T : IActivity
+        {
+            var replyToConversation = MessageFactory.Text(content);
+            replyToConversation.TextFormat = (turnContext.Activity as IMessageActivity).TextFormat;
+            await turnContext.SendActivityAsync(replyToConversation).ConfigureAwait(false);
+        }
+
         #endregion
     }
 }

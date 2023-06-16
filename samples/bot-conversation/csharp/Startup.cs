@@ -37,7 +37,7 @@ namespace Microsoft.BotBuilderSamples
             services.AddSingleton<IBotFrameworkHttpAdapter, AdapterWithErrorHandler>();
 
             // Create the bot as a transient. In this case the ASP Controller is expecting an IBot.
-            services.AddTransient<IBot, TeamsConversationBot>();
+            //services.AddTransient<IBot, TeamsConversationBot>();
             services.AddTransient<IBot, BatchConversationBot>();
 
         }
